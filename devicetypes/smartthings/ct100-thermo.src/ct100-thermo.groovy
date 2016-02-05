@@ -1,5 +1,5 @@
 metadata {
-	// Automatically generated. Make future change here.
+	// Automatically generated. Make future change here. 
 	definition (name: "CT100 Thermo", namespace: "smartthings", author: "SmartThings") {
 		capability "Actuator"
 		capability "Temperature Measurement"
