@@ -1,8 +1,6 @@
-/**
-* Linear Zwave Siren v3
-*
+/*
 * Copyright 2015 Mike Wilson
-*
+* // https://community.smartthings.com/t/linear-z-wave-siren-device-type-needed/19700/38
 * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 * in compliance with the License. You may obtain a copy of the License at:
 *
