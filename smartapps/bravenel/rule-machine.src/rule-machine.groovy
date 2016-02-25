@@ -1,19 +1,26 @@
 /**
  *  Rule Machine
  *
- *  Copyright 2015 Bruce Ravenel and Mike Maxwell
+ *  Copyright 2015, 2016 Bruce Ravenel and Mike Maxwell
  *
- *  Version 1.6.6   10 Jan 2016
+ *  Version 1.7.6a   24 Feb 2016
  *
  *	Version History
  *
+ *	1.7.6	24 Feb 2016		Added User Guide link, fixed Rule truth mechanism
+ *	1.7.5	21 Feb 2016		Improved custom command selection
+ *	1.7.4	20 Feb 2016		Added saved command display, UI improvements
+ *	1.7.3	14 Feb 2016		Improved Rule Machine initialization, fixed Delete custom commands bug
+ *	1.7.2	8 Feb 2016		Added set Boolean for Rules
+ *	1.7.1	5 Feb 2016		Added update Rule
+ *	1.7.0	31 Jan 2016		Added run Rule actions
  *	1.6.6	10 Jan 2016		Improved method of getting custom device commands
  *	1.6.5	1 Jan 2016		Added version numbers to main page
  *	1.6.4	30 Dec 2015		Multi-commands
  *	1.6.3	26 Dec 2015		UI improvements and icon per Michael Struck
  *	1.6.2	25 Dec 2015		null parameter value patch in expert, maxwell
  *	1.6.1	24 Dec 2015		UI improvement
- *	1.6	23 Dec 2015		Added expert commands per Mike Maxwell
+ *	1.6.0	23 Dec 2015		Added expert commands per Mike Maxwell
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -42,26 +49,31 @@ preferences {
 	page(name: "mainPage")
 	page(name: "removePage")
 	//expert pages
-	page(name: "expert")
-	page(name: "generalApprovalPAGE")
 	page(name: "customCommandsPAGE")
+	page(name: "generalApprovalPAGE")
 	page(name: "addCustomCommandPAGE")
 	page(name: "customParamsPAGE")
 }
 
 def mainPage() {
-    dynamicPage(name: "mainPage", title: "Installed Rules", install: true, uninstall: false, submitOnChange: true) {
+	if(!state.setup) firstRun()
+    if(state.ruleState) state.ruleState = null  // obsolete
+    def nApps = childApps.size()
+    dynamicPage(name: "mainPage", title: "Installed Rules, Triggers and Actions " + (nApps > 0 ? "[$nApps]" : ""), install: true, uninstall: false) {
     	if(!state.setup) initialize(true)
         section {
             app(name: "childRules", appName: "Rule", namespace: "bravenel", title: "Create New Rule...", multiple: true)
         }
-	section ("Expert Features") {
-		href( "expert", title: "", description: "Tap to create custom commands", state: "")
+		section ("Expert Features") {
+			href("customCommandsPAGE", title: null, description: anyCustom() ? "Custom Commands..." : "Tap to create Custom Commands", state: anyCustom())
+        }
+        section ("Rule Machine User Guide") {
+			href url:"https://community.smartthings.com/t/rule-machine-user-guide/40176", style:"embedded", required:false, description:"Tap to view User Guide", title: ""
         }
         section ("Remove Rule Machine"){
-        	href "removePage", description: "Tap to remove Rule Machine ", title: ""
+        	href "removePage", description: "Tap to remove Rule Machine and Rules", title: ""
         }
-        if(state.ver) section ("Version 1.6.6/" + state.ver) { }
+        if(state.ver) section ("Version 1.7.6a/" + state.ver) { }
     }
 }
 
@@ -73,34 +85,20 @@ def removePage() {
 }
 
 def installed() {
-    if(!state.setup) initialize(true) else initialize(false)
 }
 
 def updated() {
-    initialize(false)
 }
 
-def initialize(first) {
-	if(first) {
-		state.ruleState = [:]
-    		state.ruleSubscribers = [:]
-	}
-	childApps.each {child ->
-		if(child.name == "Rule") {
-			log.info "Installed Rules and Triggers: ${child.label}"
-			if(first) {
-				state.ruleState[child.label] = null
-				state.ruleSubscribers[child.label] = [:]
-			}
-		} 
-	}
+def firstRun() {
 	state.setup = true
+	state.ruleSubscribers = [:]
 }
 
 def ruleList(appLabel) {
 	def result = []
 	childApps.each { child ->
-		if(child.name == "Rule" && child.label != appLabel && state.ruleState[child.label] != null) result << child.label
+		if(child.name == "Rule" && child.label != appLabel) result << child.label
 	}
 	return result
 }
@@ -115,8 +113,7 @@ def subscribeRule(appLabel, ruleName, ruleTruth, childMethod) {
 }
 
 def setRuleTruth(appLabel, ruleTruth) {
-//	log.debug "setRuleTruth1: $appLabel, $ruleTruth"
-	state.ruleState[appLabel] = ruleTruth
+//	log.debug "setRuleTruth: $appLabel, $ruleTruth, ${state.ruleState[appLabel]}"
 	def thisList = state.ruleSubscribers[appLabel]
 	thisList.each {
 		if(it.value == null || "$it.value" == "$ruleTruth") {
@@ -127,9 +124,21 @@ def setRuleTruth(appLabel, ruleTruth) {
 	}
 }
 
+def setRuleBoolean(rule, ruleBoolean, appLabel) {
+//	log.debug "setRuleBoolean: $appLabel, $ruleBoolean"
+	childApps.each { child ->
+    	rule.each {
+			if(child.label == it) child.setBoolean(ruleBoolean, appLabel)
+        }
+	}	
+}
+
 def currentRule(appLabel) {
-//	log.debug "currentRule: $appLabel, ${state.ruleState[appLabel]}"
-	def result = state.ruleState[appLabel]
+	def result
+	childApps.each { child ->
+		if(child.label == appLabel) result = child.revealSuccess()
+	}
+    return result
 }
 
 def childUninstalled() {
@@ -139,7 +148,6 @@ def childUninstalled() {
 def removeChild(appLabel) {
 //	log.debug "removeChild: $appLabel"
 	unSubscribeRule(appLabel)
-	if(state.ruleState[appLabel] != null) state.ruleState.remove(appLabel)
 	if(state.ruleSubscribers[appLabel] != null) state.ruleSubscribers.remove(appLabel)
 }
 
@@ -163,21 +171,25 @@ def runRule(rule, appLabel) {
 	}
 }
 
-/*****custom command specific pages	*****/
-def expert(){
-	dynamicPage(name: "expert", title: "Expert Features", uninstall: false, install: false) {
-		section(){
-			paragraph "${expertText()}"
-			//expert hrefs...
-			href( "customCommandsPAGE"
-				,title		: "Configure Custom Commands..."
-				,description: ""
-				,state		: anyCustom()
-			)
+def runRuleAct(rule, appLabel) {
+//	log.debug "runRuleAct: $rule, $appLabel"
+	childApps.each { child ->
+		rule.each {
+			if(child.label == it) child.ruleActions(appLabel)
 		}
 	}
 }
 
+def runUpdate(rule) {
+//	log.debug "runUpdate: $rule"
+	childApps.each { child ->
+		rule.each {
+			if(child.label == it) child.updated()
+		}
+	}
+}
+
+/*****custom command specific pages	*****/
 def generalApprovalPAGE(params){
 	def title = params.title
 	def method = params.method
@@ -194,36 +206,59 @@ def generalApprovalPAGE(params){
 
 def customCommandsPAGE() {
 	if (!state.lastCmdIDX) state.lastCmdIDX = 0
-	def savedCommands = getCommands()
+	def savedCommands = getMyCommands()
 	dynamicPage(name: "customCommandsPAGE", title: "Custom Commands", uninstall: false, install: false) {
-		section(){
-			input(
-				name			: "devices"
-				,title			: "Test device"
-				,multiple		: false
-				,required		: false
-				,type			: "capability.actuator"
-				,submitOnChange	: true
-			)
-			if (settings.devices && savedCommands.size() != 0){
+    	def hasCommands = savedCommands.size() != 0
+		def result = ""
+		if (hasCommands){
+			def cmdMaps = state.customCommands ?: []
+			cmdMaps.each{ cmd ->
+				def cont = cmd.value.text.size() > 30 ? "..." : ""
+				result = result + "\n\t" + cmd.value.text.take(30) + cont
+			}
+        } else state.lastCmdIDX = 0
+		section(hasCommands ? "Saved commands:\n" + result : "") {
+			if (hasCommands) {
 				input(
-					name			: "testCmd"
-					,title			: "Select saved command to test"
-					,multiple		: false
+					name			: "deleteCmds"
+					,title			: "Delete saved commands"
+					,multiple		: true
 					,required		: false
+                    ,description	: ""
 					,type			: "enum"
 					,options		: savedCommands
 					,submitOnChange	: true
 				)
+				if (isValidCommand(deleteCmds)){
+					href( "generalApprovalPAGE"
+						,title			: "Delete commands now"
+						,description	: ""
+						,state			: null
+						,params			: [method:"deleteCommands",title:"Delete commands"]
+						,submitOnChange	: true
+					)
+				}
+                paragraph("")
 			}
-		}
-		def result = execCommand(settings.testCmd)
-		if (result) {
-			section("${result}"){
-			}
+			getCapab()
+            if(myCapab) getDevs()
+            if(devices && hasCommands) {
+				input(
+					name			: "testCmd"
+					,title			: "Test saved command on\n$devices"
+					,multiple		: false
+					,required		: false
+                    ,description	: ""
+					,type			: "enum"
+					,options		: savedCommands
+					,submitOnChange	: true
+				)
+				def res = execCommand(settings.testCmd)
+				if (res) paragraph("${result}")
+            }
 		}
 		section(){
-		if (devices){
+			if (devices){
 				href( "addCustomCommandPAGE"
 					,title		: "New custom command..."
 					,description: ""
@@ -231,37 +266,111 @@ def customCommandsPAGE() {
 				)
 			}
         }
-		if (getCommands()){
-			section(){
-				input(
-					name			: "deleteCmds"
-					,title			: "Delete custom commands..."
-					,multiple		: true
-					,required		: false
-                    ,description	: ""
-					,type			: "enum"
-					,options		: getCommands()
-					,submitOnChange	: true
-				)
-				if (isValidCommand(deleteCmds)){
-					href( "generalApprovalPAGE"
-						,title			: "Delete command(s) now"
-						,description	: ""
-						,state			: null
-						,params			: [method:"deleteCommands",title:"Delete Command"]
-						,submitOnChange	: true
-					)
-				}
-			}
-		}
 	}
+}
+
+def getCapab() {  
+	def myOptions = ["Acceleration", "Actuator", "Button", "Carbon monoxide detector", "Contact", "Dimmer", "Energy meter", "Garage door", "Humidity", "Illuminance", 
+    	"Lock", "Motion", "Power meter", "Presence", "Smoke detector", "Switch", "Temperature", "Thermostat", "Water sensor", "Music player"]
+	def result = input "myCapab", "enum", title: "Select capability for test device", required: false, options: myOptions.sort(), submitOnChange: true
+}
+
+def getDevs() {
+	def multi = false
+    def thisName = ""
+    def thisCapab = ""
+	switch(myCapab) {
+		case "Switch":
+			thisName = "switch"
+			thisCapab = "switch"
+			break
+		case "Actuator":
+			thisName = "actuator"
+			thisCapab = "actuator"
+			break
+		case "Motion":
+			thisName = "motion sensor"
+			thisCapab = "motionSensor"
+			break
+		case "Button":
+			thisName = "button device"
+			thisCapab = "button"
+			break
+		case "Acceleration":
+			thisName = "acceleration sensor"
+			thisCapab = "accelerationSensor"
+			break        
+		case "Contact":
+			thisName = "contact sensor"
+			thisCapab = "contactSensor"
+			break
+		case "Presence":
+			thisName = "presence sensor"
+			thisCapab = "presenceSensor"
+			break
+		case "Garage door":
+			thisName = "garage door"
+			thisCapab = "garageDoorControl"
+			break
+		case "Lock":
+			thisName = "lock"
+			thisCapab = "lock"
+			break
+		case "Dimmer":
+			thisName = "dimmer" + (multi ? "s" : "")
+			thisCapab = "switchLevel"
+			break
+		case "Temperature":
+			thisName = "temperature sensor" + (multi ? "s" : "")
+			thisCapab = "temperatureMeasurement"
+			break
+		case "Thermostat":
+			thisName = "thermostat" + (multi ? "s" : "")
+			thisCapab = "thermostat"
+			break
+		case "Humidity":
+			thisName = "humidity sensor" + (multi ? "s" : "")
+			thisCapab = "relativeHumidityMeasurement"
+			break
+		case "Illuminance":
+			thisName = "illuminance sensor" + (multi ? "s" : "")
+			thisCapab = "illuminanceMeasurement"
+			break
+		case "Energy meter":
+			thisName = "energy meter" + (multi ? "s" : "")
+			thisCapab = "energyMeter"
+			break
+		case "Power meter":
+			thisName = "power meter" + (multi ? "s" : "")
+			thisCapab = "powerMeter"
+			break
+		case "Carbon monoxide detector":
+			thisName = "CO detector" + (multi ? "s" : "")
+			thisCapab = "carbonMonoxideDetector"
+			break
+		case "Smoke detector":
+			thisName = "smoke detector" + (multi ? "s" : "")
+			thisCapab = "smokeDetector"
+			break
+		case "Water sensor":
+			thisName = "water sensor"
+			thisCapab = "waterSensor"
+			break
+		case "Music player":
+			thisName = "music player"
+			thisCapab = "musicPlayer"
+			break
+	}
+	def result = input "devices", "capability.$thisCapab", title: "Select $thisName to test for commands", required: false, multiple: multi, submitOnChange: true
 }
 
 def addCustomCommandPAGE(){
 	def cmdLabel = getCmdLabel()
 	def complete = "" 
 	def test = false
-	def pageTitle = "Create new custom command for:\n${devices}" 
+    def rest = getDeviceCommands()
+    rest = "$rest"[1..-2]
+	def pageTitle = "Create new custom command from\n\n${devices}\n\nAvailable commands:\n\n" + rest
 	if (cmdLabel){
 		complete = "complete"
 		test = true
@@ -270,7 +379,7 @@ def addCustomCommandPAGE(){
 		section(){
 			input(
 		   		name			: "cCmd"
-				,title			: "Available device commands"
+				,title			: "Select custom command"
 				,multiple		: false
 				,required		: false
 				,type			: "enum"
@@ -283,7 +392,7 @@ def addCustomCommandPAGE(){
 				,state: null
 			)
 		}
-		if (test){
+		if (cCmd){
 			def result = execTestCommand()
 			section("Configured command: ${cmdLabel}\n${result}"){
 				if (result == "succeeded"){
@@ -471,6 +580,16 @@ def getCommands(){
 	def result = [] 
 	def cmdMaps = state.customCommands ?: []
 	cmdMaps.each{ cmd ->
+		def option = [(cmd.key):([cmd.value.text, cmd.value.capab == null ? "actuator" : cmd.value.capab])]
+		result.push(option)
+	}
+	return result
+}
+
+def getMyCommands(){
+	def result = [] 
+	def cmdMaps = state.customCommands ?: []
+	cmdMaps.each{ cmd ->
 		def option = [(cmd.key):(cmd.value.text)]
 		result.push(option)
 	}
@@ -489,7 +608,7 @@ def isValidCommand(cmdIDS){
 def deleteCommands(){
 	def result
 	def cmdMaps = state.customCommands
-	if (deleteCmds.size == 1) result = "Command removed"
+	if (deleteCmds.size() == 1) result = "Command removed"
 	else result = "Commands removed"
 	deleteCmds.each{ it -> 
 		cmdMaps.remove(it)
@@ -504,6 +623,26 @@ def commandExists(cmd){
 	return result
 }
 def addCommand(){
+	def capabs = [	"Acceleration" : "accelerationSensor", 
+    				"Button" : "button",
+    				"Carbon monoxide detector" : "carbonMonoxideDetector", 
+                    "Contact" : "contactSensor", 
+                    "Dimmer" : "switchLevel",
+                    "Energy meter" : "energyMeter", 
+                    "Garage door" : "garageDoorControl", 
+                    "Humidity" : "humiditySensor", 
+                    "Illuminance" : "illuminanceSensor", 
+    				"Lock" : "lock", 
+                    "Motion" : "motionSensor", 
+                    "Power meter" : "powerMeter", 
+                    "Presence" : "presenceSensor", 
+                    "Smoke detector" : "smokeDetector", 
+                    "Switch" : "switch", 
+                    "Temperature" : "temperatureMeasurement", 
+                    "Thermostat" : "thermostat",
+        			"Water sensor" : "waterSensor", 
+                    "Music player" : "musicPlayer", 
+                    "Actuator" : "actuator"]
 	def result
 	def newCmd = getCmdLabel()
 	def found = commandExists(newCmd)
@@ -522,6 +661,7 @@ def addCommand(){
 			params.put(i, param)
 		}	
 		cmd.put("params",params)
+        if(myCapab) cmd.put("capab", capabs[myCapab]) else cmd.put("capab", "actuator")
 		if (cmdMaps) cmdMaps.put((nextIDX),cmd)
 		else state.customCommands = [(nextIDX):cmd]
 		result = "command: ${newCmd} was added"
@@ -545,7 +685,8 @@ def execTestCommand(){
 			def ems = em.split(":")
 			ems = ems[2].replace(" [","").replace("]","")
 			ems = ems.replaceAll(", ","\n")
-			result = "failed, valid commands:\n${ems}"
+//			result = "failed, valid commands:\n${ems}"
+			result = "failed"
 		}
 		catch (e){
 			result = "failed with:\n${e}"
@@ -604,13 +745,4 @@ def getDeviceCommands(){
 def isExpert(ver){
 	state.ver = ver
 	return getCommands().size() > 0
-}
-
-def expertText() {
-	def text = 
-		"Custom commands allows Rule Machine to control devices with custom capabilities. " +
-		"This includes dual dimmers and switches, ThingShields, FGBW controllers or any device you might build a " +
-		"custom SmartApp to utilize.\n\nCustom commands that are created and saved here will become available for use " +
-		"in any new or existing rules.\n\nAfter saving at least one command, look for 'Run custom device command' in your " + 
-		"'Select Actions' sections."
 }
